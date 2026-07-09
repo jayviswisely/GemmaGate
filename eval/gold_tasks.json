@@ -1,0 +1,250 @@
+[
+ {
+  "task_id": "math-1",
+  "prompt": "Calculate 847 * 36 - 120.",
+  "check": {
+   "mode": "number",
+   "expected": 30372
+  }
+ },
+ {
+  "task_id": "math-2",
+  "prompt": "A store increases the price of a $240 jacket by 15%. What is the new price?",
+  "check": {
+   "mode": "number",
+   "expected": 276
+  }
+ },
+ {
+  "task_id": "math-3",
+  "prompt": "A trader bought a watch for $80 and sold it for $110. What was the profit?",
+  "check": {
+   "mode": "number",
+   "expected": 30
+  }
+ },
+ {
+  "task_id": "math-4",
+  "prompt": "If a car travels at 60 km per hour for 4 hours and then 80 km per hour for 2 hours, what is the total distance traveled?",
+  "check": {
+   "mode": "number",
+   "expected": 400
+  }
+ },
+ {
+  "task_id": "sent-1",
+  "prompt": "Classify the sentiment as positive or negative.\nReview: Absolutely terrible quality, broke on the first day, complete waste of money.",
+  "check": {
+   "mode": "exact",
+   "expected": "negative"
+  }
+ },
+ {
+  "task_id": "sent-2",
+  "prompt": "Classify the sentiment as positive or negative.\nReview: The packaging was damaged, but the product itself is absolutely wonderful and works perfectly.",
+  "check": {
+   "mode": "exact",
+   "expected": "positive"
+  }
+ },
+ {
+  "task_id": "sent-3",
+  "prompt": "What is the sentiment of this text (positive, negative, or neutral)?\nText: The package arrived on Tuesday as scheduled.",
+  "check": {
+   "mode": "exact",
+   "expected": "neutral"
+  }
+ },
+ {
+  "task_id": "ner-1",
+  "prompt": "Extract all named entities (person, organization, location, date) from the text. Output JSON.\nText: Dr. Maria Chen joined Acme Corp in Tokyo on March 3, 2024.",
+  "check": {
+   "mode": "json_subset",
+   "expected": {
+    "person": [
+     "Maria Chen"
+    ],
+    "organization": [
+     "Acme Corp"
+    ],
+    "location": [
+     "Tokyo"
+    ],
+    "date": [
+     "March 3, 2024"
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "ner-2",
+  "prompt": "Extract named entities as JSON with keys person, organization, location, date.\nText: Sundar Pichai announced the partnership between Google and NASA in California on 2024-06-11.",
+  "check": {
+   "mode": "json_subset",
+   "expected": {
+    "person": [
+     "Sundar Pichai"
+    ],
+    "organization": [
+     "Google",
+     "NASA"
+    ],
+    "location": [
+     "California"
+    ],
+    "date": [
+     "2024-06-11"
+    ]
+   }
+  }
+ },
+ {
+  "task_id": "sum-1",
+  "prompt": "Summarize the following passage in 2 sentences.\nText: The city council met on Tuesday to debate the new transit plan. Supporters argued it would cut commute times by twenty percent and reduce emissions across the metro area. Opponents raised concerns about the projected cost overruns and construction disruption. After four hours of discussion, the council voted 7-2 to approve the plan with amendments. The amendments reduce the initial budget and phase construction over five years.",
+  "check": {
+   "mode": "summary",
+   "max_sentences": 2,
+   "contains_any": [
+    "council",
+    "transit",
+    "plan"
+   ]
+  }
+ },
+ {
+  "task_id": "logic-1",
+  "prompt": "Alice is taller than Bob. Carol is shorter than Bob. Who is the tallest?",
+  "check": {
+   "mode": "exact",
+   "expected": "Alice"
+  }
+ },
+ {
+  "task_id": "logic-2",
+  "prompt": "Dan finished the race before Erin. Erin finished before Frank. Who finished last?",
+  "check": {
+   "mode": "exact",
+   "expected": "Frank"
+  }
+ },
+ {
+  "task_id": "dbg-1",
+  "prompt": "Find the bug and provide the corrected implementation.\n```python\ndef is_even(n):\n    if n % 2 = 0:\n        return True\n    return False\n```",
+  "check": {
+   "mode": "code_test",
+   "tests": [
+    "assert is_even(4) is True",
+    "assert is_even(7) is False",
+    "assert is_even(0) is True"
+   ]
+  }
+ },
+ {
+  "task_id": "dbg-2",
+  "prompt": "This function should return the largest number in a list but has a bug. Fix it.\n```python\ndef find_max(nums):\n    best = 0\n    for n in nums:\n        if n > best:\n            best = n\n    return best\n```",
+  "check": {
+   "mode": "code_test",
+   "tests": [
+    "assert find_max([3, 9, 2]) == 9",
+    "assert find_max([-5, -2, -9]) == -2"
+   ]
+  }
+ },
+ {
+  "task_id": "gen-1",
+  "prompt": "Write a Python function is_palindrome(s) that returns True if s reads the same forwards and backwards, ignoring case.",
+  "check": {
+   "mode": "code_test",
+   "tests": [
+    "assert is_palindrome('Level') is True",
+    "assert is_palindrome('python') is False",
+    "assert is_palindrome('A') is True"
+   ]
+  }
+ },
+ {
+  "task_id": "gen-2",
+  "prompt": "Write a Python function count_vowels(s) that returns the number of vowels (a, e, i, o, u) in the string s, case-insensitive.",
+  "check": {
+   "mode": "code_test",
+   "tests": [
+    "assert count_vowels('Hello World') == 3",
+    "assert count_vowels('xyz') == 0",
+    "assert count_vowels('AEIOU') == 5"
+   ]
+  }
+ },
+ {
+  "task_id": "fact-1",
+  "prompt": "Explain how photosynthesis works.",
+  "check": {
+   "mode": "contains_all",
+   "expected": [
+    "sunlight",
+    "oxygen"
+   ]
+  }
+ },
+ {
+  "task_id": "fact-2",
+  "prompt": "What is the capital of France and what river runs through it?",
+  "check": {
+   "mode": "contains_all",
+   "expected": [
+    "Paris",
+    "Seine"
+   ]
+  }
+ },
+ {
+  "task_id": "math-5",
+  "prompt": "A $200 item is increased by 10% and then decreased by 20%. What is the final price?",
+  "check": {
+   "mode": "number",
+   "expected": 176
+  }
+ },
+ {
+  "task_id": "math-6",
+  "prompt": "Divide $600 between two partners in the ratio 2:3. What is the larger share?",
+  "check": {
+   "mode": "number",
+   "expected": 360
+  }
+ },
+ {
+  "task_id": "ner-3",
+  "prompt": "Extract entities present in the text. Return JSON: {\"entities\": [{\"text\": \"...\", \"label\": \"PERSON|ORG|LOCATION|DATE\"}]}.\nText: Maria Chen joined Acme Corp in Tokyo yesterday.",
+  "check": {
+   "mode": "contains_all",
+   "expected": [
+    "Maria Chen",
+    "Acme Corp",
+    "Tokyo",
+    "yesterday",
+    "entities"
+   ]
+  }
+ },
+ {
+  "task_id": "sum-2",
+  "prompt": "Summarize the following in 3 bullet points.\nText: The council approved the transit plan on Tuesday. Supporters cited faster commutes across the region. Opponents warned about budget overruns during the debate. Construction begins next spring with phased funding over five years.",
+  "check": {
+   "mode": "contains_all",
+   "expected": [
+    "- "
+   ]
+  }
+ },
+ {
+  "task_id": "gen-3",
+  "prompt": "Write a Python function fib(n) that returns the nth Fibonacci number, where fib(0) is 0.",
+  "check": {
+   "mode": "code_test",
+   "tests": [
+    "assert fib(0) == 0",
+    "assert fib(10) == 55"
+   ]
+  }
+ }
+]

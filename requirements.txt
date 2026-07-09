@@ -1,0 +1,4 @@
+# GemmaGate uses only the Python standard library at runtime.
+# Optional extras (NOT installed in the default image):
+#   transformers + torch  -> local Gemma classification fallback
+#   tiktoken              -> tighter pre-call token estimates

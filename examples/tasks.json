@@ -1,0 +1,12 @@
+[
+  {"task_id": "t1", "prompt": "Calculate 847 * 36 - 120."},
+  {"task_id": "t2", "prompt": "A store increases the price of a $240 jacket by 15%. What is the new price?"},
+  {"task_id": "t3", "prompt": "Classify the sentiment of this review as positive or negative and justify your classification.\nReview: The battery died in two hours and the screen was scratched on arrival. Absolutely terrible purchase."},
+  {"task_id": "t4", "prompt": "Summarize the following passage in 2 sentences.\nText: The city council met on Tuesday to debate the new transit plan. Supporters argued it would cut commute times by twenty percent and reduce emissions. Opponents raised concerns about the projected cost overruns. After four hours of discussion, the council voted 7-2 to approve the plan with amendments. The amendments reduce the initial budget and phase construction over five years."},
+  {"task_id": "t5", "prompt": "Extract and label all named entities (person, organization, location, date) from the text. Output JSON.\nText: Dr. Maria Chen joined Acme Corp in Tokyo on March 3, 2024."},
+  {"task_id": "t6", "prompt": "Find the bug and provide the corrected implementation.\n```python\ndef is_even(n):\n    if n % 2 = 0:\n        return True\n    return False\n```"},
+  {"task_id": "t7", "prompt": "Alice is taller than Bob. Carol is shorter than Bob. Who is the tallest?"},
+  {"task_id": "t8", "prompt": "Write a Python function is_palindrome(s) that returns True if s reads the same forwards and backwards, ignoring case."},
+  {"task_id": "t9", "prompt": "Explain how photosynthesis works."},
+  {"task_id": "t10", "prompt": "What is the average of 12, 18, 22, 31 and 47?"}
+]

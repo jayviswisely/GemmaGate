@@ -1,0 +1,21 @@
+# GemmaGate — Profile B: bundled 7B local model (near-zero remote tokens)
+# Build:  1) run scripts/get_model.ps1 (Windows) or scripts/get_model.sh
+#         2) docker build -f Dockerfile.local -t gemmagate:local .
+# Image lands ~5.5GB compressed — under the 10GB competition cap.
+# REQUIRED by the judging harness: build for linux/amd64
+#   docker buildx build --platform linux/amd64 -t <tag> .
+FROM --platform=linux/amd64 python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ cmake \
+    && pip install --no-cache-dir llama-cpp-python==0.2.90 \
+    && apt-get purge -y gcc g++ cmake && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY gemmagate/ ./gemmagate/
+COPY main.py .
+COPY models/model.gguf /models/model.gguf
+
+ENV GEMMAGATE_LOCAL_GGUF=/models/model.gguf
+# The harness injects FIREWORKS_API_KEY, FIREWORKS_BASE_URL, ALLOWED_MODELS.
+ENTRYPOINT ["python", "main.py"]
