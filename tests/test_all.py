@@ -79,6 +79,21 @@ def test_tier_planning_from_names():
     assert plan.mid == "mid-34b-chat"
     single = plan_tiers(["only-model-x"])
     assert single.cheap == single.mid == single.strong == "only-model-x"
+    old_pin = os.environ.get("GEMMAGATE_MODEL_PIN")
+    try:
+        os.environ.pop("GEMMAGATE_MODEL_PIN", None)
+        pinned = plan_tiers([
+            "accounts/fireworks/models/minimax-m3",
+            "accounts/fireworks/models/kimi-k2p7-code",
+            "accounts/fireworks/models/gemma-4-31b-it",
+        ])
+        assert pinned.cheap == pinned.mid == pinned.strong
+        assert "kimi-k2p7" in pinned.cheap
+    finally:
+        if old_pin is None:
+            os.environ.pop("GEMMAGATE_MODEL_PIN", None)
+        else:
+            os.environ["GEMMAGATE_MODEL_PIN"] = old_pin
 
 
 # --------------------------------------------------- B. routing invariants
@@ -716,6 +731,15 @@ def test_short_answer_batch_parse():
     out = b.solve([(0, s1), (1, s2)], _t.time() + 60)
     assert len(out) == 2 and "Paris" in out[0].answer and "Austen" in out[1].answer
     assert out[0].remote_tokens == 30
+
+
+def test_repair_prompt_keeps_original_task_context():
+    from gemmagate.prompts import build_repair_prompt
+    s = _spec("Who wrote Pride and Prejudice? Answer in one sentence.")
+    prompt, cap, _ = build_repair_prompt(s, "Charles Dickens", ["wrong author"])
+    assert "Pride and Prejudice" in prompt
+    assert "Charles Dickens" in prompt
+    assert cap >= 500
 
 
 def _run():

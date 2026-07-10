@@ -14,6 +14,7 @@ let you pin tiers by substring on launch day without code changes.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass
 
@@ -27,6 +28,7 @@ _KEYWORDS = [
     ("xl", 70.0), ("max", 100.0), ("ultra", 200.0),
 ]
 _DEFAULT_SIZE = 30.0   # unknown => assume mid-size (never assume cheap)
+_DEFAULT_PIN = "kimi-k2p7"
 
 
 def estimate_size_b(name: str) -> float:
@@ -71,6 +73,21 @@ def plan_tiers(allowed_models: list[str],
         raise ValueError("ALLOWED_MODELS is empty")
 
     overrides = overrides or {}
+    sizes = {m: estimate_size_b(m) for m in models}
+
+    # Bakeoff-derived default: if the allowed pool contains Kimi, use it for
+    # remote rungs. This is a substring preference, and explicit tier
+    # overrides still win.
+    pin = os.environ.get("GEMMAGATE_MODEL_PIN", _DEFAULT_PIN).strip()
+    if pin and not overrides:
+        pins = [p.strip().lower() for p in pin.split(",") if p.strip()]
+        pinned = next((m for m in models
+                       if any(p in m.lower() for p in pins)), None)
+        if pinned:
+            plan = TierPlan(cheap=pinned, mid=pinned, strong=pinned, sizes=sizes)
+            log.info("model tiers pinned by GEMMAGATE_MODEL_PIN=%s -> %s",
+                     pin, pinned)
+            return plan
 
     def find_override(tier: str):
         sub = overrides.get(tier)
@@ -82,7 +99,6 @@ def plan_tiers(allowed_models: list[str],
         return None
 
     ranked = sorted(models, key=lambda m: (estimate_size_b(m), -_pref_bonus(m)))
-    sizes = {m: estimate_size_b(m) for m in models}
 
     cheap = find_override("cheap") or ranked[0]
     strong = find_override("strong") or ranked[-1]

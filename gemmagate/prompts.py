@@ -131,9 +131,15 @@ def build_prompt(spec: TaskSpec) -> tuple[str, int, bool]:
 
 
 def build_repair_prompt(spec: TaskSpec, bad_answer: str, reasons: list[str]) -> tuple[str, int, bool]:
-    """Tiny fix-it prompt: bad output + violated constraint. Never the full task."""
+    """Retry prompt with enough task context to fix semantic mistakes.
+
+    A tiny repair prompt saves tokens, but if it omits the original task the
+    model can only reformat the bad answer. Accuracy-first retries resend the
+    task plus the validation failure.
+    """
     reason = "; ".join(reasons[:3]) or "invalid output"
     bad = bad_answer if len(bad_answer) <= 500 else bad_answer[:500] + "…"
+    task = spec.prompt if len(spec.prompt) <= 1800 else spec.prompt[:1800] + "..."
     fmt = {
         Category.NER: "Return corrected JSON only (keys: person, organization, location, date).",
         Category.MATH: "Return only the final line: ANSWER: <value>",
@@ -142,9 +148,18 @@ def build_repair_prompt(spec: TaskSpec, bad_answer: str, reasons: list[str]) -> 
         Category.CODE_GEN: "Return corrected code only.",
         Category.SUMMARIZATION: f"Return the corrected summary only{_len_clause(spec)}.",
     }.get(spec.category, "Return the corrected answer only.")
-    p = (f"Your previous answer failed validation: {reason}.\n"
-         f"PREVIOUS:\n{bad}\n{fmt}")
-    return p, 300, spec.category == Category.NER
+    p = (f"TASK:\n{task}\n\n"
+         f"Your previous answer failed validation: {reason}.\n"
+         f"PREVIOUS:\n{bad}\n\n{fmt}")
+    cap = {
+        Category.NER: 400,
+        Category.MATH: 384,
+        Category.SENTIMENT: 60,
+        Category.CODE_DEBUG: 900,
+        Category.CODE_GEN: 900,
+        Category.SUMMARIZATION: 500,
+    }.get(spec.category, 500)
+    return p, cap, spec.category == Category.NER
 
 
 def attach_draft(prompt: str, draft: str) -> str:

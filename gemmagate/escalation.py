@@ -142,15 +142,15 @@ class EscalationController:
                                  if r not in (Route.LOCAL_RULE, Route.LOCAL_MODEL)),
                                 len(ladder))
             ladder.insert(first_remote, Route.LOCAL_MODEL)
-        # dedupe tiers that resolve to the same model
-        seen_models, out = set(), []
+        # Keep duplicate remote rungs even when tiers pin to the same model:
+        # the second pass is a validation-guided retry with task context.
+        out = []
         for r in ladder:
             if r in (Route.LOCAL_RULE, Route.LOCAL_MODEL):
                 out.append(r)
                 continue
             m = self.tiers.get(r.value.replace("remote_", ""))
-            if m and m not in seen_models:
-                seen_models.add(m)
+            if m:
                 out.append(r)
         return out
 

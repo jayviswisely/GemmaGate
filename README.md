@@ -54,8 +54,14 @@ problem as a verification task:
 4. Polish zero-token local answers when that helps an LLM judge parse them.
 5. Accept the local answer only when validation passes.
 6. Batch eligible sentiment and short factual residue to amortize prompt cost.
-7. Otherwise call the cheapest allowed Fireworks model.
-8. Escalate to larger models only if validation fails.
+7. Prefer `kimi-k2p7` by substring when it appears in `ALLOWED_MODELS`, based
+   on observed Track 1 bakeoff behavior.
+8. Disable hidden reasoning with `reasoning_effort="none"` on Fireworks calls
+   when the endpoint accepts that parameter.
+9. Otherwise call the cheapest allowed Fireworks model.
+10. Escalate to larger models only if validation fails.
+11. On remote validation failure, retry with the original task context plus the
+    validation error instead of a context-free repair fragment.
 
 The default image is Python standard-library only, starts quickly, and avoids
 bundling a large local model. This keeps the container small and safe for the
@@ -66,9 +72,9 @@ hackathon grading environment.
 Current offline validation:
 
 ```text
-Unit tests: 54/54
+Unit tests: 55/55
 Dry benchmark: 21/23 locally scored tasks
-Estimated dry-run remote tokens: 115
+Estimated dry-run remote tokens: 144
 Solved fully locally in dry run: 21/23
 ```
 
@@ -124,6 +130,15 @@ The hackathon harness provides these at runtime:
 FIREWORKS_API_KEY
 FIREWORKS_BASE_URL
 ALLOWED_MODELS
+```
+
+Optional routing and remote-call controls:
+
+```text
+GEMMAGATE_MODEL_PIN=kimi-k2p7   # default substring preference if present
+GEMMAGATE_MODEL_PIN=            # disable model pinning
+GEMMAGATE_REASONING_OFF=1       # default; send reasoning_effort="none"
+GEMMAGATE_REASONING_OFF=0       # disable reasoning parameter
 ```
 
 Do not hardcode secrets or model IDs in the repository. For local development,
@@ -294,6 +309,8 @@ docs/
   should never be committed.
 - The agent reads model IDs from `ALLOWED_MODELS` at runtime and does not
   hardcode launch-day model names.
+- `GEMMAGATE_MODEL_PIN` is a substring preference only; if no allowed model
+  matches it, GemmaGate falls back to normal tier planning.
 - Do not set `GEMMAGATE_ACCURACY_FIRST` for the current submission path; that
   experiment was removed from the Docker image after leaderboard testing.
 

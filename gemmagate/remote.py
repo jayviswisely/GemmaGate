@@ -8,6 +8,11 @@ Contract compliance:
 Real token usage from the API's `usage` field feeds the ledger; local
 estimates are used only when the field is absent. GEMMAGATE_DRY_RUN=1 swaps
 in a simulator so the whole agent can be tested without network access.
+
+Fireworks reasoning models may bill hidden reasoning inside completion_tokens.
+By default the client sends reasoning_effort="none"; if a proxy rejects that
+field with HTTP 400, it retries without the field and drops it for the rest of
+the run.
 """
 from __future__ import annotations
 
@@ -76,6 +81,8 @@ class FireworksClient:
         self.timeout = timeout
         self.dry_run = os.environ.get("GEMMAGATE_DRY_RUN", "") == "1" or not self.url
         self._dry_responses: dict[str, str] = {}
+        self.reasoning_off = os.environ.get("GEMMAGATE_REASONING_OFF", "1") != "0"
+        self._drop_reasoning_param = False
 
     # ------------------------------------------------------------- public
 
@@ -93,6 +100,8 @@ class FireworksClient:
                 {"role": "user", "content": prompt},
             ],
         }
+        if self.reasoning_off and not self._drop_reasoning_param:
+            body["reasoning_effort"] = "none"
         if json_mode:
             body["response_format"] = {"type": "json_object"}
 
@@ -115,10 +124,16 @@ class FireworksClient:
                 except Exception:
                     detail = ""
                 err = f"HTTP {e.code} {detail}".strip()
-                if json_mode and e.code == 400:
+                if json_mode and e.code == 400 and "response_format" in body:
                     # some models reject response_format — retry without it
                     body.pop("response_format", None)
                     json_mode = False
+                    continue
+                if e.code == 400 and "reasoning_effort" in body:
+                    body.pop("reasoning_effort", None)
+                    self._drop_reasoning_param = True
+                    log.info("remote endpoint rejected reasoning_effort; "
+                             "dropping it for the rest of this run")
                     continue
                 if e.code in (429, 500, 502, 503) and attempt < self.max_retries:
                     time.sleep(1.2 * (attempt + 1))
