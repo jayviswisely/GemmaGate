@@ -7,3 +7,5 @@ out/
 output/
 /results.json
 *.tmp
+models/
+*.gguf
