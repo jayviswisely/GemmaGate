@@ -22,6 +22,7 @@ env/
 out/
 output/
 outputs/
+/results.json
 tmp/
 temp/
 logs/
