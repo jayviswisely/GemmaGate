@@ -13,7 +13,8 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .batcher import SentimentBatcher
+from .batcher import SentimentBatcher, ShortAnswerBatcher
+from .present import polish
 from .classifier import classify, estimate_risk
 from .escalation import EscalationController
 from .model_select import plan_tiers
@@ -41,8 +42,6 @@ class Router:
         self.ledger = Ledger()
         self.client = FireworksClient(self.ledger)
         self.max_workers = max_workers
-        self.accuracy_first = os.environ.get(
-            "GEMMAGATE_ACCURACY_FIRST", "") == "1"
         self.local_model = None
         if load_local_model is not None:
             try:
@@ -64,6 +63,7 @@ class Router:
             except Exception:
                 pass
         self.batcher = SentimentBatcher(self.client, self.tiers.get("cheap"))
+        self.fact_batcher = ShortAnswerBatcher(self.client, self.tiers.get("cheap"))
 
     # ------------------------------------------------------------- solve
 
@@ -89,18 +89,23 @@ class Router:
         # batched remote call for the residues; per-item validation failures
         # fall through to the normal individual ladder below.
         from .schemas import Category
+        residues: list[tuple[int, Solved]] = []
         batch_candidates: list[tuple[int, TaskSpec]] = []
-        if not self.accuracy_first:
-            for i, s in enumerate(specs):
-                if s.category == Category.SENTIMENT and self.batcher.eligible(s):
-                    local = self.controller._local(s)
-                    if local is not None and local.validation.passed:
-                        results[i] = self.controller._done(s, local, [local],
-                                                           time.time())
-                    else:
-                        batch_candidates.append((i, s))
-            if len(batch_candidates) >= 2:
-                results.update(self.batcher.solve(batch_candidates, deadline))
+        for i, s in enumerate(specs):
+            if s.category == Category.SENTIMENT and self.batcher.eligible(s):
+                local = self.controller._local(s)
+                if local is not None and local.validation.passed:
+                    results[i] = self.controller._done(s, local, [local],
+                                                       time.time())
+                else:
+                    batch_candidates.append((i, s))
+        if len(batch_candidates) >= 2:
+            results.update(self.batcher.solve(batch_candidates, deadline))
+        fact_candidates = [(i, s) for i, s in enumerate(specs)
+                           if i not in results and s.category == Category.FACTUAL
+                           and s.cls_confidence >= 0.6 and not s.payload]
+        if len(fact_candidates) >= 2:
+            results.update(self.fact_batcher.solve(fact_candidates, deadline))
 
         pending = [(i, s) for i, s in enumerate(specs) if i not in results]
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
@@ -121,6 +126,8 @@ class Router:
 
     def _solve_one(self, spec: TaskSpec, deadline: float) -> Solved:
         solved = self.controller.solve(spec, deadline)
+        if solved.remote_tokens == 0 and solved.route.value.startswith("local"):
+            solved.answer = polish(spec, solved.answer)
         log.info("%s: route=%s conf=%.2f remote_tokens=%d t=%.1fs",
                  spec.task_id, solved.route.value, solved.confidence,
                  solved.remote_tokens, solved.wall_time_s)

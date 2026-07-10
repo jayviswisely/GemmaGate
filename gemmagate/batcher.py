@@ -99,3 +99,57 @@ class SentimentBatcher:
         log.info("batch of %d: %d accepted, %d fallback",
                  len(chunk), len(out), len(chunk) - len(out))
         return out
+
+
+class ShortAnswerBatcher:
+    """One numbered remote call for several short factual questions.
+
+    Each escalated factual task normally pays its own instruction overhead
+    (~30-45 input tokens). Batching shares that overhead across the group:
+    N questions -> one call. Any item that fails per-item validation simply
+    falls through to the normal individual ladder, so batching can only
+    save tokens, never cost accuracy.
+    """
+
+    def __init__(self, client, model):
+        self.client = client
+        self.model = model
+
+    def solve(self, candidates, deadline):
+        import time as _t
+        from .schemas import Route, Solved
+        from .validator import validate
+        if not self.model or _t.time() > deadline - 10 or getattr(self.client, "dry_run", False):
+            return {}
+        numbered = "\n".join(f"{k+1}. {s.prompt.strip()}"
+                              for k, (_, s) in enumerate(candidates))
+        prompt = ("Answer each numbered question in one concise, complete "
+                  "sentence. Output ONLY the numbered answers, one per line.\n"
+                  + numbered)
+        max_tok = 20 + 40 * len(candidates)
+        t0 = time.time()
+        try:
+            res = self.client.complete(self.model, prompt, max_tokens=max_tok)
+        except Exception:
+            return {}
+        if not res or not res.text:
+            return {}
+        answers = {}
+        for line in res.text.splitlines():
+            m = re.match(r"\s*(\d+)[.):]\s*(.+)", line)
+            if m:
+                answers[int(m.group(1))] = m.group(2).strip()
+        out = {}
+        total = getattr(res, "total_tokens",
+                        getattr(res, "input_tokens", 0)
+                        + getattr(res, "output_tokens", 0))
+        per_task = max(total, 0) // max(len(candidates), 1)
+        for k, (i, s) in enumerate(candidates):
+            a = answers.get(k + 1, "")
+            v = validate(s, a)
+            if a and v.passed:
+                out[i] = Solved(task_id=s.task_id, answer=v.repaired or a,
+                                category=s.category, route=Route.REMOTE_CHEAP,
+                                confidence=v.score, remote_tokens=per_task,
+                                wall_time_s=time.time() - t0)
+        return out
