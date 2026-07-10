@@ -2,7 +2,7 @@
 
 Backends, chosen by env at startup:
   * GEMMAGATE_LOCAL_GGUF=<path.gguf>   -> llama-cpp-python (CPU, recommended:
-        gemma-2-2b-it Q4_K_M ~1.7GB or qwen2.5-1.5b-instruct Q4 ~1.0GB)
+        qwen2.5-3b-instruct Q4_K_M for the optional Dockerfile.local profile)
   * GEMMAGATE_LOCAL_MODEL=<hf id/path> -> transformers
   * neither set                        -> None (agent runs heuristics-only)
 
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 
 from .remote import estimate_tokens
 from .schemas import LLMResult
@@ -45,14 +46,19 @@ class StubLocal:
 class _LlamaCppModel:
     def __init__(self, path: str):
         from llama_cpp import Llama
+        threads = int(os.environ.get(
+            "GEMMAGATE_LOCAL_THREADS",
+            str(max(1, min(os.cpu_count() or 2, 4)))))
         self.llm = Llama(model_path=path, n_ctx=4096,
-                         n_threads=os.cpu_count() or 4, verbose=False)
+                         n_threads=threads, verbose=False)
+        self._lock = threading.Lock()
 
     def generate(self, prompt: str, max_tokens: int = 64,
                  temperature: float = 0.0) -> LLMResult:
-        out = self.llm.create_chat_completion(
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens, temperature=temperature)
+        with self._lock:
+            out = self.llm.create_chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens, temperature=temperature)
         text = (out["choices"][0]["message"]["content"] or "").strip()
         u = out.get("usage", {})
         return LLMResult(text=text,
@@ -65,14 +71,16 @@ class _TransformersModel:
     def __init__(self, path: str):
         from transformers import pipeline
         self.pipe = pipeline("text-generation", model=path, device_map="auto")
+        self._lock = threading.Lock()
 
     def generate(self, prompt: str, max_tokens: int = 64,
                  temperature: float = 0.0) -> LLMResult:
-        out = self.pipe([{"role": "user", "content": prompt}],
-                        max_new_tokens=max_tokens,
-                        do_sample=temperature > 0,
-                        temperature=max(temperature, 1e-3),
-                        return_full_text=False)
+        with self._lock:
+            out = self.pipe([{"role": "user", "content": prompt}],
+                            max_new_tokens=max_tokens,
+                            do_sample=temperature > 0,
+                            temperature=max(temperature, 1e-3),
+                            return_full_text=False)
         text = out[0]["generated_text"]
         if isinstance(text, list):
             text = text[-1].get("content", "")

@@ -34,14 +34,14 @@ GemmaGate routes across all eight Track 1 capability categories:
 
 | Category | Local strategy | Remote strategy |
 | --- | --- | --- |
-| Factual knowledge | Never guessed locally; short-answer factual residue can be batched | Cheap model first, stronger only if needed |
+| Factual knowledge | Optional local LLM consensus; short-answer factual residue can be batched | Cheap model first, stronger only if needed |
 | Mathematical reasoning | Deterministic math solver, numeric validation, judge-friendly answer polish | Escalate only on unsupported patterns |
-| Sentiment classification | Lexicon, negation, contrast, sarcasm guards, grounded justifications | Batch uncertain label-only cases |
-| Text summarization | Extractive summaries for checkable constraints | Cheap or mid model for open-ended summaries |
+| Sentiment classification | Lexicon, negation, contrast, sarcasm guards, optional local LLM self-check | Batch uncertain label-only cases |
+| Text summarization | Extractive summaries plus optional local LLM verification | Cheap or mid model for open-ended summaries |
 | Named entity recognition | Regex and gazetteer extraction with coverage guard | JSON-mode remote call if local coverage is uncertain |
 | Code debugging | Mechanical repairs and executable validation | Mid or strong model for harder fixes |
-| Logical reasoning | Brute-force constraint solver where provable | Stronger model only when constraints are not parseable |
-| Code generation | Safe templates plus syntax/self tests | Mid or strong model for unknown specs |
+| Logical reasoning | Brute-force constraint solver where provable; optional local LLM consensus | Stronger model only when constraints are not parseable |
+| Code generation | Safe templates plus syntax/self tests; optional local LLM examples gate | Mid or strong model for unknown specs |
 
 ## Why It Is Token Efficient
 
@@ -52,27 +52,32 @@ problem as a verification task:
 2. Try the cheapest local solver for that task type.
 3. Validate the answer with deterministic checks.
 4. Polish zero-token local answers when that helps an LLM judge parse them.
-5. Accept the local answer only when validation passes.
-6. Batch eligible sentiment and short factual residue to amortize prompt cost.
-7. Prefer `kimi-k2p7` by substring when it appears in `ALLOWED_MODELS`, based
+5. If a bundled GGUF model is present, sample it locally and accept only after
+   validation, agreement, and a tiny local YES/NO verification pass.
+6. Keep math and hard NER on deterministic proof or Fireworks by default,
+   because plausible unchecked local guesses are risky for the accuracy gate.
+7. Batch eligible sentiment and short factual residue to amortize prompt cost.
+8. Prefer `kimi-k2p7` by substring when it appears in `ALLOWED_MODELS`, based
    on observed Track 1 bakeoff behavior.
-8. Disable hidden reasoning with `reasoning_effort="none"` on Fireworks calls
+9. Disable hidden reasoning with `reasoning_effort="none"` on Fireworks calls
    when the endpoint accepts that parameter.
-9. Otherwise call the cheapest allowed Fireworks model.
-10. Escalate to larger models only if validation fails.
-11. On remote validation failure, retry with the original task context plus the
+10. Otherwise call the cheapest allowed Fireworks model.
+11. Escalate to larger models only if validation fails.
+12. On remote validation failure, retry with the original task context plus the
     validation error instead of a context-free repair fragment.
 
 The default image is Python standard-library only, starts quickly, and avoids
 bundling a large local model. This keeps the container small and safe for the
-hackathon grading environment.
+hackathon grading environment. `Dockerfile.local` is the optional leaderboard
+profile: it bakes a Qwen2.5-3B GGUF into the image and enables the local
+consensus gate.
 
 ## Current Local Checks
 
 Current offline validation:
 
 ```text
-Unit tests: 55/55
+Unit tests: 56/56
 Dry benchmark: 21/23 locally scored tasks
 Estimated dry-run remote tokens: 144
 Solved fully locally in dry run: 21/23
@@ -139,6 +144,11 @@ GEMMAGATE_MODEL_PIN=kimi-k2p7   # default substring preference if present
 GEMMAGATE_MODEL_PIN=            # disable model pinning
 GEMMAGATE_REASONING_OFF=1       # default; send reasoning_effort="none"
 GEMMAGATE_REASONING_OFF=0       # disable reasoning parameter
+GEMMAGATE_LOCAL_GGUF=/models/model.gguf
+GEMMAGATE_LOCAL_SAMPLES=3
+GEMMAGATE_LOCAL_MIN_AGREE=2
+GEMMAGATE_LOCAL_VERIFY=1
+GEMMAGATE_LOCAL_FULL=1          # optional: allow local model for math/NER too
 ```
 
 Do not hardcode secrets or model IDs in the repository. For local development,
@@ -160,6 +170,13 @@ Build the local image:
 docker build -t gemmagate .
 ```
 
+Build the bundled-local-model image:
+
+```powershell
+scripts\get_model.ps1
+docker build -f Dockerfile.local -t gemmagate:local .
+```
+
 Run it like the judging harness:
 
 ```powershell
@@ -171,6 +188,9 @@ docker run --rm `
   -v "${PWD}\out:/output" `
   gemmagate
 ```
+
+Use `gemmagate:local` in the command above when testing the bundled GGUF
+profile.
 
 Inspect the result:
 
@@ -196,6 +216,13 @@ The judging VM runs `linux/amd64`, so the submitted image must include a
 ```powershell
 docker login
 docker buildx build --platform linux/amd64 -t jayviswisely/gemmagate:latest --push .
+```
+
+For the bundled-local-model submission profile:
+
+```powershell
+scripts\get_model.ps1
+docker buildx build --platform linux/amd64 -f Dockerfile.local -t jayviswisely/gemmagate:latest --push .
 ```
 
 Verify that the public image can be pulled:
@@ -253,8 +280,12 @@ gemmagate/router.py
 
 gemmagate/escalation.py
   - walks the local -> cheap -> mid -> strong ladder
-  - accepts answers only after validation
+  - accepts local LLM answers only after validation, consensus, and self-checks
   - returns a non-empty failsafe answer if all else fails
+
+gemmagate/local_model.py
+  - loads optional GGUF or Transformers models from environment variables
+  - serializes local generation calls for thread-safe CPU inference
 
 gemmagate/validator.py
   - checks answers for format, constraints, and task-specific correctness
@@ -279,6 +310,7 @@ gemmagate/remote.py
 ```text
 main.py
 Dockerfile
+Dockerfile.local
 requirements.txt
 gemmagate/
   batcher.py
@@ -302,9 +334,10 @@ docs/
 
 ## Notes
 
-- The default Dockerfile is the recommended submission path.
-- `Dockerfile.local` is an optional local-model profile and is not required for
-  the default submission.
+- The default Dockerfile is the fast, small submission path.
+- `Dockerfile.local` is the optional bundled-local-model profile. It is larger
+  but can reduce Fireworks usage because in-container inference scores as zero
+  remote tokens.
 - `.env.local`, root `results.json`, generated outputs, and Python cache files
   should never be committed.
 - The agent reads model IDs from `ALLOWED_MODELS` at runtime and does not

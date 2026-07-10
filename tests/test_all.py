@@ -310,7 +310,10 @@ def test_local_llm_consistent_factual_zero_tokens():
     r = Router()
     draft = ("Photosynthesis is the process by which plants use chlorophyll to "
              "convert sunlight, water and carbon dioxide into glucose and oxygen.")
-    r.controller.local_model = StubLocal({"photosynthesis": draft})
+    r.controller.local_model = StubLocal({
+        "VERIFY_LOCAL_ANSWER": "YES",
+        "photosynthesis": draft,
+    })
     out = r.solve_all([{"task_id": "d1",
                         "prompt": "Explain how photosynthesis works."}], DEADLINE)
     assert out[0].answer == draft
@@ -331,6 +334,22 @@ def test_local_llm_inconsistent_escalates_with_draft():
                         "prompt": "Explain what gravity is."}], DEADLINE)
     assert out[0].answer == corrected          # samples disagreed -> remote fixed it
     assert r.ledger.calls == 1                 # draft attached, single call
+
+
+def test_local_llm_self_check_can_veto_consensus():
+    from gemmagate.local_model import StubLocal
+    r = Router()
+    bad = "Gravity is caused by invisible magnets in the sky."
+    good = "Gravity is the attraction between masses."
+    r.controller.local_model = StubLocal({
+        "VERIFY_LOCAL_ANSWER": "NO",
+        "gravity": bad,
+    })
+    r.client.set_dry_responses({"gravity": good})
+    out = r.solve_all([{"task_id": "d3",
+                        "prompt": "Explain what gravity is."}], DEADLINE)
+    assert out[0].answer == good
+    assert r.ledger.calls == 1
 
 
 def test_local_llm_codegen_needs_passing_examples():

@@ -105,6 +105,11 @@ class EscalationController:
         self.local_model = local_model
         self.local_tps = 10.0            # tokens/sec, overwritten by Router probe
         self.local_full = os.environ.get("GEMMAGATE_LOCAL_FULL", "") == "1"
+        self.local_samples = max(1, int(os.environ.get(
+            "GEMMAGATE_LOCAL_SAMPLES", "3")))
+        self.local_min_agree = max(1, int(os.environ.get(
+            "GEMMAGATE_LOCAL_MIN_AGREE", "2")))
+        self.local_verify = os.environ.get("GEMMAGATE_LOCAL_VERIFY", "1") != "0"
         # Leaderboard evidence: remote-everything teams all sit at 84.2%
         # while our local answer styles scored 57.9% — the grader accepts
         # MODEL-style answers. Format-risky categories therefore default to
@@ -137,7 +142,7 @@ class EscalationController:
         # (competition rule: in-container inference is free). Inserted before
         # the first remote rung for every category where its answer can be
         # validated or consistency-checked.
-        if self.local_model is not None and cat != Category.SENTIMENT:
+        if self._try_local_model_for(cat):
             first_remote = next((i for i, r in enumerate(ladder)
                                  if r not in (Route.LOCAL_RULE, Route.LOCAL_MODEL)),
                                 len(ladder))
@@ -153,6 +158,15 @@ class EscalationController:
             if m:
                 out.append(r)
         return out
+
+    def _try_local_model_for(self, cat: Category) -> bool:
+        if self.local_model is None:
+            return False
+        if self.local_full:
+            return True
+        # If deterministic math or NER coverage cannot prove correctness, a
+        # remote call is safer than trusting a plausible local-model guess.
+        return cat not in (Category.MATH, Category.NER)
 
     # ------------------------------------------------------------- solve
 
@@ -191,7 +205,7 @@ class EscalationController:
                 if attempt is None:
                     continue
             elif route == Route.LOCAL_MODEL:
-                attempt = self._local_llm(spec, deadline)
+                attempt = self._local_llm_consensus(spec, deadline)
                 if attempt is None:
                     continue
             else:
@@ -247,6 +261,161 @@ class EscalationController:
                 r"([\w\.\'\"\[\]\-]+)", prompt):
             tests.append(f"assert {name}({m.group(1)}) == {m.group(2)}")
         return tests[:4]
+
+    def _local_llm_consensus(self, spec: TaskSpec,
+                             deadline: float) -> Optional[Attempt]:
+        """Trust local inference only after free validation and agreement."""
+        prompt, max_tok, _ = build_prompt(spec)
+        max_tok = self._local_max_tokens(spec, max_tok)
+        temps = self._local_sample_temperatures(spec)
+        verify_budget = 48 if self.local_verify else 0
+        if not self._local_time_ok(max_tok * len(temps) + verify_budget,
+                                   deadline):
+            return None
+
+        valid: list[tuple[str, Validation, str]] = []
+        cached = spec.meta.get("local_draft")
+        if cached:
+            v = validate(spec, cached)
+            if v.passed:
+                valid.append((v.repaired or cached, v, "local-draft"))
+
+        for temp in temps:
+            if not self._local_time_ok(max_tok, deadline):
+                break
+            try:
+                res = self.local_model.generate(prompt, max_tokens=max_tok,
+                                                temperature=temp)
+            except Exception:
+                continue
+            if not res.text:
+                continue
+            v = validate(spec, res.text)
+            if v.passed:
+                valid.append((v.repaired or res.text, v,
+                              res.model or "local-llm"))
+
+        chosen = self._choose_local_candidate(spec, valid)
+        if chosen is None:
+            return None
+        answer, v, model = chosen
+
+        if spec.category in (Category.CODE_GEN, Category.CODE_DEBUG):
+            if not self._code_examples_pass(spec, answer):
+                return None
+            score = 0.9
+        else:
+            if self.local_verify and not self._local_self_verifies(
+                    spec, answer, deadline):
+                return None
+            score = v.score
+
+        spec.meta["local_answer"] = answer
+        return Attempt(Route.LOCAL_MODEL, model + "+consensus", answer,
+                       Validation(True, score, ["local consensus accepted"]))
+
+    @staticmethod
+    def _local_max_tokens(spec: TaskSpec, remote_cap: int) -> int:
+        if spec.category == Category.SENTIMENT:
+            return min(remote_cap, 16)
+        if spec.category in (Category.FACTUAL, Category.LOGIC):
+            return min(remote_cap, 96)
+        if spec.category == Category.SUMMARIZATION:
+            return min(remote_cap, 220)
+        return remote_cap
+
+    def _local_sample_temperatures(self, spec: TaskSpec) -> list[float]:
+        if spec.category in (Category.CODE_GEN, Category.CODE_DEBUG):
+            return [0.0]
+        if spec.category == Category.SUMMARIZATION:
+            return [0.0, 0.4][:max(1, min(self.local_samples, 2))]
+        base = [0.0, 0.25, 0.65, 0.9]
+        return base[:max(1, min(self.local_samples, len(base)))]
+
+    def _choose_local_candidate(
+            self, spec: TaskSpec,
+            valid: list[tuple[str, Validation, str]]
+    ) -> Optional[tuple[str, Validation, str]]:
+        if not valid:
+            return None
+        if spec.category in (Category.CODE_GEN, Category.CODE_DEBUG,
+                             Category.SUMMARIZATION):
+            return max(valid, key=lambda item: item[1].score)
+
+        min_agree = 1 if self.local_full else self.local_min_agree
+        best: Optional[tuple[str, Validation, str]] = None
+        best_n = 0
+        for cand in valid:
+            n = sum(1 for other in valid
+                    if self._answers_agree(spec.category, cand[0], other[0]))
+            if n >= min_agree and (
+                    best is None or n > best_n or cand[1].score > best[1].score):
+                best = cand
+                best_n = n
+        return best
+
+    @staticmethod
+    def _answers_agree(cat: Category, a: str, b: str) -> bool:
+        if EscalationController._answer_key(cat, a) == \
+                EscalationController._answer_key(cat, b):
+            return True
+        if cat not in (Category.FACTUAL, Category.LOGIC,
+                       Category.SUMMARIZATION):
+            return False
+        w1 = {w for w in _re.findall(r"[a-z0-9]{3,}", a.lower())}
+        w2 = {w for w in _re.findall(r"[a-z0-9]{3,}", b.lower())}
+        if not w1 or not w2:
+            return False
+        threshold = 0.45 if cat == Category.SUMMARIZATION else 0.55
+        return len(w1 & w2) / len(w1 | w2) >= threshold
+
+    @staticmethod
+    def _answer_key(cat: Category, answer: str) -> str:
+        text = " ".join((answer or "").strip().lower().split())
+        if cat == Category.NER:
+            try:
+                import json as _json
+                return _json.dumps(_json.loads(answer), sort_keys=True)
+            except Exception:
+                return text
+        if cat == Category.SENTIMENT:
+            return text.split(" - ")[0].split(":")[0].split()[0].strip(".!")
+        return _re.sub(r"\W+", "", text)
+
+    def _code_examples_pass(self, spec: TaskSpec, answer: str) -> bool:
+        tests = self._extract_examples(spec.prompt, answer)
+        if not tests:
+            return False
+        ns: dict = {}
+        try:
+            exec(answer, ns)               # noqa: S102 - isolated harness env
+            for t in tests:
+                exec(t, ns)                # noqa: S102
+        except Exception:
+            return False
+        return True
+
+    def _local_self_verifies(self, spec: TaskSpec, answer: str,
+                             deadline: float) -> bool:
+        if not self._local_time_ok(48, deadline):
+            return False
+        task = spec.prompt if len(spec.prompt) <= 1500 else spec.prompt[:1500]
+        cand = answer if len(answer) <= 1200 else answer[:1200]
+        prompt = (
+            "VERIFY_LOCAL_ANSWER\n"
+            "Task:\n"
+            f"{task}\n\n"
+            "Candidate answer:\n"
+            f"{cand}\n\n"
+            "Is the candidate correct and in the required format? "
+            "Reply YES or NO only."
+        )
+        try:
+            res = self.local_model.generate(prompt, max_tokens=4,
+                                            temperature=0.0)
+        except Exception:
+            return False
+        return bool(_re.match(r"\s*yes\b", res.text or "", _re.I))
 
     def _local_llm(self, spec: TaskSpec, deadline: float) -> Optional[Attempt]:
         """Full local answer at 0 scored tokens — accepted only when a FREE
@@ -326,6 +495,7 @@ class EscalationController:
         from .remote import estimate_tokens
         if estimate_tokens(draft) > 200:
             return None
+        spec.meta["local_draft"] = draft
         return draft
 
     def _remote(self, spec: TaskSpec, route: Route,
