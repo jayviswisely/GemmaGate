@@ -17,6 +17,7 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("GEMMAGATE_DRY_RUN", "1")
+os.environ.pop("GEMMAGATE_ACCURACY_FIRST", None)
 os.environ.setdefault("ALLOWED_MODELS", "test-8b-instruct,test-34b,test-70b-instruct")
 os.environ.setdefault("FIREWORKS_API_KEY", "test")
 os.environ.setdefault("FIREWORKS_BASE_URL", "https://example.invalid/v1")

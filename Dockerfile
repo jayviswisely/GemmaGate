@@ -36,4 +36,5 @@ COPY main.py .
 # ENV GEMMAGATE_LOCAL_GGUF=/models/model.gguf
 
 # The harness injects FIREWORKS_API_KEY, FIREWORKS_BASE_URL, ALLOWED_MODELS.
+ENV GEMMAGATE_ACCURACY_FIRST=1
 ENTRYPOINT ["python", "main.py"]

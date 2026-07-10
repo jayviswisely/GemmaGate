@@ -4,9 +4,9 @@ Validation-gated token router for the AMD Developer Hackathon Track 1:
 Hybrid Token-Efficient Routing Agent.
 
 GemmaGate is a local-first AI agent that solves tasks inside the container when
-the answer can be verified for free, then calls Fireworks AI only when local
-validation says escalation is needed. The goal is to preserve accuracy while
-spending as few Fireworks tokens as possible.
+the answer can be verified for free, then calls Fireworks AI when local
+validation is not strong enough. The goal is to pass the accuracy gate first,
+then spend as few Fireworks tokens as possible.
 
 ## Submission
 
@@ -56,8 +56,12 @@ problem as a verification task:
 6. Escalate to larger models only if validation fails.
 
 The default image is Python standard-library only, starts quickly, and avoids
-bundling a large local model. This keeps the container small and safe for the
-hackathon grading environment.
+bundling a large local model. The submission image enables
+`GEMMAGATE_ACCURACY_FIRST=1`, which keeps provable math and logic local but
+routes brittle code debugging and code generation tasks through Fireworks to
+protect the hidden accuracy gate. High-confidence sentiment, NER, and
+constrained summaries still use local validators first because they are often
+more reliable and cheaper than small remote models for strict formats.
 
 ## Benchmark Snapshot
 

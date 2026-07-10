@@ -41,6 +41,8 @@ class Router:
         self.ledger = Ledger()
         self.client = FireworksClient(self.ledger)
         self.max_workers = max_workers
+        self.accuracy_first = os.environ.get(
+            "GEMMAGATE_ACCURACY_FIRST", "") == "1"
         self.local_model = None
         if load_local_model is not None:
             try:
@@ -87,18 +89,18 @@ class Router:
         # batched remote call for the residues; per-item validation failures
         # fall through to the normal individual ladder below.
         from .schemas import Category
-        residues: list[tuple[int, Solved]] = []
         batch_candidates: list[tuple[int, TaskSpec]] = []
-        for i, s in enumerate(specs):
-            if s.category == Category.SENTIMENT and self.batcher.eligible(s):
-                local = self.controller._local(s)
-                if local is not None and local.validation.passed:
-                    results[i] = self.controller._done(s, local, [local],
-                                                       time.time())
-                else:
-                    batch_candidates.append((i, s))
-        if len(batch_candidates) >= 2:
-            results.update(self.batcher.solve(batch_candidates, deadline))
+        if not self.accuracy_first:
+            for i, s in enumerate(specs):
+                if s.category == Category.SENTIMENT and self.batcher.eligible(s):
+                    local = self.controller._local(s)
+                    if local is not None and local.validation.passed:
+                        results[i] = self.controller._done(s, local, [local],
+                                                           time.time())
+                    else:
+                        batch_candidates.append((i, s))
+            if len(batch_candidates) >= 2:
+                results.update(self.batcher.solve(batch_candidates, deadline))
 
         pending = [(i, s) for i, s in enumerate(specs) if i not in results]
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
