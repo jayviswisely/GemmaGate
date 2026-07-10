@@ -718,26 +718,6 @@ def test_short_answer_batch_parse():
     assert out[0].remote_tokens == 30
 
 
-def test_qualifier_mode_routes_risky_categories_strong_first():
-    from gemmagate.escalation import EscalationController
-    from gemmagate.remote import FireworksClient, Ledger
-    old_q = os.environ.get("GEMMAGATE_QUALIFIER_MODE")
-    try:
-        os.environ["GEMMAGATE_QUALIFIER_MODE"] = "1"
-        c = EscalationController(
-            FireworksClient(Ledger()),
-            {"cheap": "m-8b", "mid": "m-34b", "strong": "m-70b"})
-        s = _spec("Summarize this in one sentence. Text: Alpha beta gamma.")
-        assert c._ladder(s)[0] == Route.REMOTE_STRONG
-        m = _spec("What is 12 * 12?")
-        assert c._ladder(m)[0] == Route.LOCAL_RULE
-    finally:
-        if old_q is None:
-            os.environ.pop("GEMMAGATE_QUALIFIER_MODE", None)
-        else:
-            os.environ["GEMMAGATE_QUALIFIER_MODE"] = old_q
-
-
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     ok = 0

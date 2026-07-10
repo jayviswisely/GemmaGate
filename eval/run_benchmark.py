@@ -147,7 +147,6 @@ def main() -> int:
         print("MODE: DRY-RUN — token numbers are estimates; accuracy is only "
               "meaningful for locally-solved tasks (remote answers are simulated).\n")
     else:
-        os.environ.pop("GEMMAGATE_DRY_RUN", None)
         for var in ("FIREWORKS_API_KEY", "FIREWORKS_BASE_URL", "ALLOWED_MODELS"):
             if not os.environ.get(var):
                 print(f"--real requires {var} to be set"); return 1

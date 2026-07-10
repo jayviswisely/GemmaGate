@@ -42,7 +42,6 @@ class Router:
         self.ledger = Ledger()
         self.client = FireworksClient(self.ledger)
         self.max_workers = max_workers
-        self.qualifier_mode = _qualifier_mode_enabled()
         self.local_model = None
         if load_local_model is not None:
             try:
@@ -64,8 +63,7 @@ class Router:
             except Exception:
                 pass
         self.batcher = SentimentBatcher(self.client, self.tiers.get("cheap"))
-        fact_model = None if self.qualifier_mode else self.tiers.get("cheap")
-        self.fact_batcher = ShortAnswerBatcher(self.client, fact_model)
+        self.fact_batcher = ShortAnswerBatcher(self.client, self.tiers.get("cheap"))
 
     # ------------------------------------------------------------- solve
 
@@ -93,22 +91,21 @@ class Router:
         from .schemas import Category
         residues: list[tuple[int, Solved]] = []
         batch_candidates: list[tuple[int, TaskSpec]] = []
-        if not self.qualifier_mode:
-            for i, s in enumerate(specs):
-                if s.category == Category.SENTIMENT and self.batcher.eligible(s):
-                    local = self.controller._local(s)
-                    if local is not None and local.validation.passed:
-                        results[i] = self.controller._done(s, local, [local],
-                                                           time.time())
-                    else:
-                        batch_candidates.append((i, s))
-            if len(batch_candidates) >= 2:
-                results.update(self.batcher.solve(batch_candidates, deadline))
-            fact_candidates = [(i, s) for i, s in enumerate(specs)
-                               if i not in results and s.category == Category.FACTUAL
-                               and s.cls_confidence >= 0.6 and not s.payload]
-            if len(fact_candidates) >= 2:
-                results.update(self.fact_batcher.solve(fact_candidates, deadline))
+        for i, s in enumerate(specs):
+            if s.category == Category.SENTIMENT and self.batcher.eligible(s):
+                local = self.controller._local(s)
+                if local is not None and local.validation.passed:
+                    results[i] = self.controller._done(s, local, [local],
+                                                       time.time())
+                else:
+                    batch_candidates.append((i, s))
+        if len(batch_candidates) >= 2:
+            results.update(self.batcher.solve(batch_candidates, deadline))
+        fact_candidates = [(i, s) for i, s in enumerate(specs)
+                           if i not in results and s.category == Category.FACTUAL
+                           and s.cls_confidence >= 0.6 and not s.payload]
+        if len(fact_candidates) >= 2:
+            results.update(self.fact_batcher.solve(fact_candidates, deadline))
 
         pending = [(i, s) for i, s in enumerate(specs) if i not in results]
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
@@ -146,15 +143,3 @@ def _tier_overrides_from_env() -> dict:
         if v:
             out[tier] = v
     return out
-
-
-def _qualifier_mode_enabled() -> bool:
-    """Default real submissions to accuracy-first routing.
-
-    Dry-run and tests keep token-optimized local-first behavior unless the
-    operator explicitly opts in with GEMMAGATE_QUALIFIER_MODE=1.
-    """
-    v = os.environ.get("GEMMAGATE_QUALIFIER_MODE")
-    if v is not None:
-        return v == "1"
-    return os.environ.get("GEMMAGATE_DRY_RUN", "") != "1"
