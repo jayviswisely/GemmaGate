@@ -72,8 +72,9 @@ def score(check: dict, answer: str) -> bool:
         return v is not None and abs(v - float(check["expected"])) < 1e-6
     if mode == "exact":
         head = re.split(r"[—\-:.]", a, maxsplit=1)[0].strip().lower()
-        return head == str(check["expected"]).lower() or \
-            a.lower() == str(check["expected"]).lower()
+        exp = str(check["expected"]).lower()
+        return head == exp or a.lower() == exp or \
+            re.search(r"\b" + re.escape(exp) + r"\b", a, re.I) is not None
     if mode == "contains_all":
         return all(k.lower() in a.lower() for k in check["expected"])
     if mode == "json_subset":

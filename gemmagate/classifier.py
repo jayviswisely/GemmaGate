@@ -61,6 +61,15 @@ _LABELSET_RE = re.compile(
     r"(?:one of|either|choose from|label(?:\s+\w+){0,3}\s+as|classify(?:\s+\w+){0,3}\s+as)\s*[:\-]?\s*((?:[\"'`]?\w[\w\s]{0,20}[\"'`]?\s*(?:,|/|\bor\b)\s*)+[\"'`]?\w[\w\s]{0,20}[\"'`]?)", re.I)
 
 
+# An instruction head ending in a colon: a leading task verb, then anything
+# that is not a sentence end, then ':'. Bounded so a colon deep inside prose
+# (or a "Text:" marker, handled above) never triggers it.
+_INLINE_INSTR_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:classify|label|identify|determine|summari[sz]e|"
+    r"extract|list|find|debug|fix|correct|analy[sz]e|evaluate|rate|tl;?dr)"
+    r"[^.!?\n:]{0,90}:", re.I)
+
+
 def _split(prompt: str) -> tuple[str, str]:
     fence = _CODE_FENCE_RE.search(prompt)
     if fence:
@@ -75,6 +84,15 @@ def _split(prompt: str) -> tuple[str, str]:
     m = re.search(r"[\"“]([^\"”]{80,})[\"”]", prompt)
     if m:
         return (prompt[:m.start()] + prompt[m.end():]).strip(), m.group(1)
+    # inline instruction colon: "Classify sentiment as positive, negative, or
+    # neutral: <text>". Without this, the payload stays empty and solvers score
+    # the INSTRUCTION's own words — the label list poisons the sentiment
+    # lexicon and the summary echoes the instruction back.
+    m = _INLINE_INSTR_RE.match(prompt)
+    if m:
+        body = prompt[m.end():].strip().strip('"').strip()
+        if len(body.split()) >= 3:
+            return prompt[:m.end()].strip().rstrip(":").strip(), body
     return prompt.strip(), ""
 
 

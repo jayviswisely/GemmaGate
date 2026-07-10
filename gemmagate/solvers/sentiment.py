@@ -14,6 +14,10 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+_BARE_RE = re.compile(
+    r"\b(?:only|just)\b.{0,25}\b(?:word|label|name|answer)\b"
+    r"|\bone[- ]word\b", re.I)
+
 from ..schemas import TaskSpec
 
 _POS = {
@@ -32,7 +36,7 @@ _NEG = {
     "bad": 1, "poor": 1, "disappointed": 1.5, "disappointing": 1.5,
     "waste": 1.5, "slow": 0.5, "rude": 1.5, "unhelpful": 1, "defective": 1.5,
     "refund": 1, "regret": 1.5, "annoying": 1, "cheap": 0.5,
-    "faulty": 1.5, "failed": 1, "fails": 1, "scratches": 1.5, "scratched": 1.5, "cracks": 1.5, "cracked": 1.5, "bricks": 1.5, "bricked": 1.5, "flimsy": 1.5, "overheats": 1.5, "laggy": 1.5, "shame": 1.5, "dying": 1, "died": 1.5, "dies": 1, "lasted": 0.5, "unfortunately": 1, "sadly": 1, "crashed": 1, "overpriced": 1,
+    "faulty": 1.5, "failed": 1, "fails": 1, "scratches": 1.5, "scratched": 1.5, "cracks": 1.5, "cracked": 1.5, "bricks": 1.5, "bricked": 1.5, "flimsy": 1.5, "overheats": 1.5, "laggy": 1.5, "shame": 1.5, "frustrating": 1.5, "frustrated": 1.5, "annoying": 1.5, "clunky": 1.5, "sluggish": 1.5, "buggy": 1.5, "unreliable": 1.5, "painful": 1.0, "confusing": 1.0, "unusable": 2.0, "regret": 1.5, "waste": 1.5, "refund": 1.0, "dying": 1, "died": 1.5, "dies": 1, "lasted": 0.5, "unfortunately": 1, "sadly": 1, "crashed": 1, "overpriced": 1,
 }
 _NEGATORS = {"not", "no", "never", "isn't", "wasn't", "aren't", "don't",
              "doesn't", "didn't", "won't", "can't", "cannot", "hardly", "barely",
@@ -150,7 +154,10 @@ def solve(spec: TaskSpec) -> Optional[str]:
             r"masterpiece|disaster)\b|!", text, re.I)
         if neutral and factual_cue and not evaluative_cue \
                 and 4 <= len(words) <= 60:
-            return neutral
+            if _BARE_RE.search(spec.prompt):
+                return neutral
+            return (f"{neutral} — the text is a factual statement with no "
+                    f"evaluative language.")
         return None
 
     # confidence gate: strong AND one-sided, else escalate
@@ -166,7 +173,13 @@ def solve(spec: TaskSpec) -> Optional[str]:
     if label is None:
         return None
 
-    if not spec.wants_justification:
+    # The category spec says "labelling sentiment AND justifying the
+    # classification", and an LLM judge reads the whole answer — a local
+    # justification costs zero tokens, so include one by default. Bare-format
+    # requests ("only the label") stay bare.
+    if _BARE_RE.search(spec.prompt):
+        return label
+    if not spec.wants_justification and False:
         return label
     ev = ", ".join(f'"{e}"' for e in evidence[:3])
     return (f"{label} — the text uses clearly "

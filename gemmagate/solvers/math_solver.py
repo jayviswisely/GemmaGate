@@ -90,6 +90,29 @@ def _f(s: str) -> float:
 def solve(prompt: str) -> Optional[str]:
     text = prompt.replace("\u00a3", "$").replace("\u20ac", "$")
 
+    # "What is 80 increased by 25%?" — no is/was copula before the verb
+    m = re.search(r"\$?" + _NUM + r"\s+(increas\w*|decreas\w*|rais\w*|reduc\w*|"
+                  r"discount\w*|mark\w*(?:\s+(?:up|down))?)\s+by\s+" + _NUM +
+                  r"\s*(?:%|percent)", text, re.I)
+    if m:
+        base, stem, pct = _f(m.group(1)), m.group(2).lower(), _f(m.group(3))
+        down = ("down" in stem) or stem.startswith(("decreas", "reduc", "discount"))
+        return fmt(base * (1 + (-1 if down else 1) * pct / 100))
+
+    # reverse percent: "20 is what percent of 80?" -> 25
+    m = re.search(_NUM + r"\s+is\s+what\s+percent\s+of\s+" + _NUM, text, re.I)
+    if m:
+        part, whole = _f(m.group(1)), _f(m.group(2))
+        if whole:
+            return fmt(round(part / whole * 100, 6)) + "%"
+
+    # unit-preserving addition: "Calculate 4 km + 3 km."
+    m = re.search(_NUM + r"\s*([a-zA-Z]{1,6})\s*([+\-])\s*" + _NUM + r"\s*\2\b", text)
+    if m:
+        a, unit, op, b = _f(m.group(1)), m.group(2), m.group(3), _f(m.group(4))
+        val = a + b if op == "+" else a - b
+        return f"{fmt(val)} {unit}"
+
     # AI-trap: round-trip average speed = HARMONIC mean (LLMs answer the
     # arithmetic mean). "60 km/h there, 40 km/h back, average speed?" -> 48
     if re.search(r"\baverage speed\b", text, re.I) and \
