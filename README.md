@@ -8,6 +8,12 @@ the answer can be verified for free, then calls Fireworks AI only when local
 validation says escalation is needed. The goal is to preserve accuracy while
 spending as few Fireworks tokens as possible.
 
+For the current submission, real runs default to `GEMMAGATE_QUALIFIER_MODE=1`.
+That mode keeps provable math and logic local, but sends hidden-risky categories
+to the strongest available Fireworks tier first. This spends more tokens than
+the dry benchmark on purpose because the leaderboard accuracy gate must be
+passed before token reduction matters.
+
 ## Submission
 
 Public Docker image:
@@ -54,8 +60,13 @@ problem as a verification task:
 4. Polish zero-token local answers when that helps an LLM judge parse them.
 5. Accept the local answer only when validation passes.
 6. Batch eligible sentiment and short factual residue to amortize prompt cost.
-7. Otherwise call the cheapest allowed Fireworks model.
+7. In dry-run/token mode, otherwise call the cheapest allowed Fireworks model.
 8. Escalate to larger models only if validation fails.
+
+In qualifier mode, GemmaGate changes that order for hidden-risky categories:
+sentiment, NER, summarization, factual knowledge, code debugging, and code
+generation go to the strongest tier first. This is less token-efficient, but it
+is the safer path when the target is an 84-85% accuracy gate.
 
 The default image is Python standard-library only, starts quickly, and avoids
 bundling a large local model. This keeps the container small and safe for the
@@ -124,6 +135,13 @@ The hackathon harness provides these at runtime:
 FIREWORKS_API_KEY
 FIREWORKS_BASE_URL
 ALLOWED_MODELS
+```
+
+Optional routing override:
+
+```text
+GEMMAGATE_QUALIFIER_MODE=1  # accuracy-first, default for real submissions
+GEMMAGATE_QUALIFIER_MODE=0  # local-first token mode
 ```
 
 Do not hardcode secrets or model IDs in the repository. For local development,
@@ -206,6 +224,14 @@ python eval\run_benchmark.py
 Run the real Fireworks benchmark. This spends real tokens:
 
 ```powershell
+python eval\run_benchmark.py --real --skip-baseline
+```
+
+Real runs default to qualifier mode. To compare the older local-first token
+mode, run:
+
+```powershell
+$env:GEMMAGATE_QUALIFIER_MODE = "0"
 python eval\run_benchmark.py --real --skip-baseline
 ```
 
@@ -294,8 +320,8 @@ docs/
   should never be committed.
 - The agent reads model IDs from `ALLOWED_MODELS` at runtime and does not
   hardcode launch-day model names.
-- Do not set `GEMMAGATE_ACCURACY_FIRST` for the current submission path; that
-  experiment was removed from the Docker image after leaderboard testing.
+- Do not set `GEMMAGATE_ACCURACY_FIRST`; the current accuracy-focused switch is
+  `GEMMAGATE_QUALIFIER_MODE`.
 
 ## License
 
